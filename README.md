@@ -6,7 +6,7 @@
 ![Frontend deploy pipeline](https://github.com/user-attachments/assets/ae115427-e6d4-40e2-97d1-4525da36f392)
 
 - 프로젝트의 코드가 수정되어 main 브랜치에 병합될 경우 git actions가 동작합니다.
-  - .yml에서 `*.md` 파일은 예외처리하여, 단순 README.md 수정은 git actions 가 트리거 되지 않도록 예외처리했습니다.
+  - .yml에서 `*.md` 파일은 예외처리하여, 단순 README.md 수정은 git actions 가 트리거 되지 않도록했습니다.
    
     ```yml
     on:
@@ -15,10 +15,11 @@
           - main
         paths-ignore:
           - '*.md'
+    
       workflow_dispatch:
     ```
   
-- Git actions으로 가상 머신에서 빌드된 정적 파일들을 S3 Sync로 배포가 됩니다.
+- Git actions으로 가상 머신의 `ubuntu-latest` 환경에서 빌드된 정적 파일들을 S3 Sync로 배포가 됩니다.
   - `npm ci` 로 package-lock.json으로 의존성을 설치하고, `npm run build`로 프로젝트를 빌드합니다.
  
     ```yml
@@ -26,40 +27,39 @@
       deploy:
         runs-on: ubuntu-latest
     
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
-    
-        - name: Install dependencies
-          run: npm ci
-    
-        - name: Build
-          run: npm run build
+        steps:
+          - name: Checkout repository
+            uses: actions/checkout@v4
+      
+          - name: Install dependencies
+            run: npm ci
+      
+          - name: Build
+            run: npm run build
     ```
   
   - 정적 빌드된 파일을 `aws s3 sync` 로 저장된 `AWS_ACCESS_KEY`와 같은 github secrets에 저장된 환경변수를 이용하여 배포합니다.
    
     ```yml    
-        - name: Configure AWS credentials
-          uses: aws-actions/configure-aws-credentials@v1
-          with:
-            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            aws-region: ${{ secrets.AWS_REGION }}
-    
-        - name: Deploy to S3
-          run: |
-            aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
+          - name: Configure AWS credentials
+            uses: aws-actions/configure-aws-credentials@v1
+            with:
+              aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+              aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              aws-region: ${{ secrets.AWS_REGION }}
+      
+          - name: Deploy to S3
+            run: |
+              aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
     ```
     
 - S3 배포 이후, CloudFront 엣지 로케이션에 캐싱된 이전 파일들을 무효화합니다.
   - `aws cloudfront create-invalidation`을 이용해 이전에 저장된 캐싱 정보를 무효화합니다.
    
-    ```yml
-    
-        - name: Invalidate CloudFront cache
-          run: |
-            aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+    ```yml      
+          - name: Invalidate CloudFront cache
+            run: |
+              aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
     ```
     
 - 사용자는 S3 혹은 CloudFront 도메인으로 접근이 가능합니다.
