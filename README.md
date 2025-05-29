@@ -1,4 +1,4 @@
-## 프론트엔드 배포 파이프 라인
+## 프론트엔드 배포 파이프 라인 - 기본 과제
 
 > Chapter 4-1. **인프라 관점의 성능 최적화**
 
@@ -15,13 +15,53 @@
           - main
         paths-ignore:
           - '*.md'
+      workflow_dispatch:
     ```
   
 - Git actions으로 가상 머신에서 빌드된 정적 파일들을 S3 Sync로 배포가 됩니다.
   - `npm ci` 로 package-lock.json으로 의존성을 설치하고, `npm run build`로 프로젝트를 빌드합니다.
+ 
+    ```yml
+    jobs:
+      deploy:
+        runs-on: ubuntu-latest
+    
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+    
+        - name: Install dependencies
+          run: npm ci
+    
+        - name: Build
+          run: npm run build
+    ```
+  
   - 정적 빌드된 파일을 `aws s3 sync` 로 저장된 `AWS_ACCESS_KEY`와 같은 github secrets에 저장된 환경변수를 이용하여 배포합니다.
+   
+    ```yml    
+        - name: Configure AWS credentials
+          uses: aws-actions/configure-aws-credentials@v1
+          with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ secrets.AWS_REGION }}
+    
+        - name: Deploy to S3
+          run: |
+            aws s3 sync out/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
+    ```
+    
 - S3 배포 이후, CloudFront 엣지 로케이션에 캐싱된 이전 파일들을 무효화합니다.
   - `aws cloudfront create-invalidation`을 이용해 이전에 저장된 캐싱 정보를 무효화합니다.
+   
+    ```yml
+    
+        - name: Invalidate CloudFront cache
+          run: |
+            aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
+    ```
+    
 - 사용자는 S3 혹은 CloudFront 도메인으로 접근이 가능합니다.
   - s3-website 로 접근 시는 원본에 바로 접근하며, http 만 접근이 가능합니다.
   - CloudFront 접근 시에는 엣지 로케이션에 저장된 캐싱 정보가 있다면 캐싱을 먼저 제공하고, 없는 경우에 원본을 제공합니다.
@@ -57,7 +97,7 @@
   - S3는 고가용성, 확장성, 내구성을 보장하며, 퍼블릭 접근 여부를 설정할 수 있고 IAM 정책이나 버킷 정책을 통해 권한을 세밀하게 제어할 수 있습니다.
   - 과제에서는 정적 파일의 저장소로만 사용되었지만, 일반 스토리지로써도 파일별로 고유한 키를 통해 데이터에 접근이 가능하며, 보안 및 권한 설정 등을 통해 접근을 제어하기 용이합니다.
   - AWS의 다양한 다른 서비스 들과 연동이 용이하며, CloudFront와 같은 지역에 사용시 별도의 데이터 소모없이 사용이 가능합니다.
-  - 실문에서는 컨텐츠 보관소로 사용중에 있고, presigned url을 발급하여 사용할 수 있는 환경으로 직접 구축하였습니다.
+  - 실무에서는 컨텐츠 보관소로 사용중에 있고, presigned url을 발급하여 사용할 수 있는 환경으로 직접 구축하였습니다.
   - presinged url을 그대로 사용하면 만료기간이 최대 7일밖에 되지 않기 때문에, 서버단에서 `/s3/%{hash}` 으로 데이터를 캐싱해두고 사용중에 있습니다.
  
 - CloudFront와 CDN
@@ -81,7 +121,7 @@
   - 다만, 연결 시 사용량과 쿼리 수, 다른 옵션들에 의해 과금이 되는 서비스 입니다.
   - 이번 과제에는 적용하진 않았지만, EC2에 적용할 때 elastic IP를 1개 할당 받아 연결하는 방식으로 사용했었습니다.
 
-## CDN과 성능최적화
+## CDN과 성능최적화 - 심화 과제
 
 ### 테스트 목적
 
@@ -125,3 +165,18 @@
 - CDN을 활용할 경우, 사용자의 첫 요청은 지리적으로 가장 가까운 엣지 로케이션(Edge Location)을 통해 처리됩니다.
 - 요청한 자원이 해당 엣지에 캐싱되어 있는 경우 즉시 응답되며, 캐싱되지 않은 경우에는 원본 서버(S3 등)에서 데이터를 가져와 저장한 후 응답합니다.
 - 이후 동일 자원에 대한 요청은 엣지 캐시에서 바로 응답되므로, 응답 속도가 대폭 향상됩니다.
+
+## 과제 피드백
+
+### 회고
+
+- 이번 과제를 진행하면서 실무에서 그때그때 찾아서 적용하던 과정들을 단계적으로 문서화 하는 경험을 하였습니다.
+- 현업에서 UX개발팀장을 맞고 있다 보니 프론트엔드 뿐만 아니라 개발 환경을 서버, 백엔드까지 세팅을 해왔습니다.
+- 이번에 S3를 컨텐츠 스토리지가 아닌 정적 페이지 배포를 위해 처음으로 써봤고, CloudFront도 배우기만 했지 실제로 처음 사용해봤습니다.
+- 과제가 설명이 잘 되어있어서 크게 어려움은 없었는데, 다른 과제보다 먼저 회사 프로젝트에 적용해도 될 것 같은 과정이었습니다.
+
+### 질문 사항
+
+- S3 - CloudFront 정적 배포 환경을 실제로도 많이 사용하는 지 궁금합니다.
+- 물론 서버가 있다면 nginx나 apache와 같은 게이트웨이에서 프론트엔드도 함께 구동이 될 것 같다고 생각이 듭니다.
+- API 서버를 분리하고 프론트만 정적 배포를 S3 환경에 배포하는게, 실무적으로도 많이 사용되는 패턴인 지 궁금합니다.
